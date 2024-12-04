@@ -1,3 +1,4 @@
+require('dotenv').config(); // Load environment variables from .env file
 const express = require('express');
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
@@ -5,6 +6,8 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const vision = require('@google-cloud/vision');
+const FoundationShade = require('./models/foundationShade');
+const { findClosestShade } = require('./utils/colorMatcher');
 
 // Load environment variables
 dotenv.config();
@@ -25,11 +28,14 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage: storage });
 
-// Set the environment variable for authentication
-process.env.GOOGLE_APPLICATION_CREDENTIALS = path.join(__dirname, 'google-credentials.json');
+// Set the environment variable for authentication using the dotenv package
+const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS; // Use environment variable
+process.env.GOOGLE_APPLICATION_CREDENTIALS = credentialsPath;  // Set path for Google credentials
 
 // Initialize the Vision API client
-const client = new vision.ImageAnnotatorClient();
+const client = new vision.ImageAnnotatorClient({
+    keyFilename: credentialsPath // Use the credentials path from environment variable
+});
 
 // Endpoint to upload and analyze image
 app.post('/analyze-image', upload.single('image'), async (req, res) => {
@@ -45,13 +51,27 @@ app.post('/analyze-image', upload.single('image'), async (req, res) => {
         const [result] = await client.imageProperties(`./uploads/${req.file.filename}`);
         const colors = result.imagePropertiesAnnotation.dominantColors.colors;
 
-        // Extract and send dominant color information
+        if (!colors || colors.length === 0) {
+            return res.status(404).json({ error: 'No dominant colors found in the image' });
+        }
+
+        // Extract primary color
         const primaryColor = colors[0].color;
-        const rgb = `rgb(${primaryColor.red}, ${primaryColor.green}, ${primaryColor.blue})`;
+
+        // Fetch foundation shades from the database
+        const foundationShades = await FoundationShade.find();
+
+        if (foundationShades.length === 0) {
+            return res.status(404).json({ error: 'No foundation shades available in the database' });
+        }
+
+        // Match the detected color to the closest foundation shade
+        const closestShade = findClosestShade(primaryColor, foundationShades);
 
         res.json({
             message: 'Image analyzed successfully!',
-            dominantColor: rgb,
+            detectedColor: `rgb(${primaryColor.red}, ${primaryColor.green}, ${primaryColor.blue})`,
+            closestShade,
         });
     } catch (err) {
         console.error('Error analyzing the image:', err);
