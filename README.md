@@ -74,5 +74,5 @@ Contributions are welcome! Fork the repository, make changes, and submit a pull 
 
 ## 📞 Contact
 For any questions or collaborations, feel free to reach out:
-- Email: rehemanjeri21@gmail.com
+- Email: jeanstaicy21@gmail.com
 - GitHub: [Staicy254](https://github.com/Staicy254)
