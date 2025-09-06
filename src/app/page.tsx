@@ -1,15 +1,24 @@
 "use client";
 
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, JSX } from "react";
 import { motion } from "framer-motion";
 
-// Foundation Shade Match - Enhanced
-// - Tailwind CSS assumed
-// - Uses client-side canvas sampling and CIEDE2000 Delta-E in LAB
-// - Attempts MediaPipe FaceMesh for cheek sampling (best-effort)
-// - Framer Motion magical preloader
+// Foundation Shade Match - Fixed & typed for Next.js (page.tsx)
+// - Added TypeScript-friendly checks, null guards, and safer window usage
 
-const FOUNDATIONS = [
+
+declare global {
+  interface Window {
+    faceMeshLoaded?: boolean;
+    FaceMesh?: any;
+    FaceDetector?: any;
+  }
+}
+
+type Lab = { L: number; a: number; b: number };
+type Foundation = { brand: string; shade: string; hex: string; lab?: Lab };
+
+const FOUNDATIONS: Foundation[] = [
   // --- Maybelline Fit Me ---
   { brand: "Maybelline Fit Me", shade: "110 Porcelain", hex: "#f8e4d8" },
   { brand: "Maybelline Fit Me", shade: "120 Classic Ivory", hex: "#f1d6c2" },
@@ -47,11 +56,13 @@ const FOUNDATIONS = [
   { brand: "Fenty", shade: "498", hex: "#2d1a12" },
 ];
 
-export default function FoundationShadeMatch() {
-  const [imageSrc, setImageSrc] = useState(null);
+export default function FoundationShadeMatch(): JSX.Element {
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const canvasRef = useRef();
+  const [result, setResult] = useState<null | { sampledRgb: { r: number; g: number; b: number }; match: Foundation & { d: number } }>(null);
+
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     // precompute LAB for foundation DB for faster runtime
@@ -60,7 +71,7 @@ export default function FoundationShadeMatch() {
     });
   }, []);
 
-  async function handleFile(e) {
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -69,100 +80,131 @@ export default function FoundationShadeMatch() {
     await analyzeImage(url);
   }
 
-  async function loadMediaPipeFaceMesh() {
-    if (window.faceMeshLoaded) return window.faceMeshLoaded;
+  // Load MediaPipe FaceMesh scripts (best-effort). Returns boolean if loaded.
+  async function loadMediaPipeFaceMesh(): Promise<boolean> {
+    if ((window as any).faceMeshLoaded) return true;
     try {
       const base = "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh";
+      // face_mesh.js and camera_utils are best-effort; if they fail, we fallback.
       await Promise.all([
-        new Promise((res) => {
+        new Promise<void>((res) => {
           if (document.querySelector('script[data-mp-face]')) return res();
           const s = document.createElement("script");
           s.src = `${base}/face_mesh.js`;
           s.setAttribute("data-mp-face", "1");
-          s.onload = res;
-          s.onerror = res;
+          s.onload = () => res();
+          s.onerror = () => res();
           document.head.appendChild(s);
         }),
-        new Promise((res) => {
+        new Promise<void>((res) => {
           if (document.querySelector('script[data-mp-camera]')) return res();
           const s = document.createElement("script");
           s.src = `https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js`;
           s.setAttribute("data-mp-camera", "1");
-          s.onload = res;
-          s.onerror = res;
+          s.onload = () => res();
+          s.onerror = () => res();
           document.head.appendChild(s);
         }),
       ]);
-      window.faceMeshLoaded = true;
+      (window as any).faceMeshLoaded = true;
       return true;
     } catch (err) {
       return false;
     }
   }
 
-  async function analyzeImage(src) {
+  async function analyzeImage(src: string) {
     setLoading(true);
     try {
       const img = await loadImage(src);
+
       const canvas = canvasRef.current;
+      if (!canvas) {
+        setResult({ sampledRgb: { r: 0, g: 0, b: 0 }, match: { brand: "", shade: "", hex: "#000000", d: Infinity } });
+        setLoading(false);
+        return;
+      }
+
       const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        setResult({ sampledRgb: { r: 0, g: 0, b: 0 }, match: { brand: "", shade: "", hex: "#000000", d: Infinity } });
+        setLoading(false);
+        return;
+      }
+
       const W = 400;
-      const ratio = img.width / img.height;
+      const ratio = img.width / img.height || 1;
       const H = Math.round(W / ratio);
       canvas.width = W;
       canvas.height = H;
       ctx.drawImage(img, 0, 0, W, H);
 
+      // default sample box (center-cheek area)
       let sampleBox = { x: W * 0.2, y: H * 0.35, w: W * 0.6, h: H * 0.25 };
 
+      // Try MediaPipe FaceMesh (best-effort)
       try {
         await loadMediaPipeFaceMesh();
-        if (window.FaceMesh) {
-          const faceMesh = new window.FaceMesh({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
+        const FaceMeshClass = (window as any).FaceMesh;
+        if (FaceMeshClass) {
+          const faceMesh = new FaceMeshClass({ locateFile: (file: string) => `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}` });
           faceMesh.setOptions({ maxNumFaces: 1, refineLandmarks: true, minDetectionConfidence: 0.5 });
-          const landmarks = await new Promise((resolve) => {
-            faceMesh.onResults((results) => {
-              if (results.multiFaceLandmarks && results.multiFaceLandmarks.length) resolve(results.multiFaceLandmarks[0]);
+
+          const landmarks = await new Promise<any | null>((resolve) => {
+            const listener = (results: any) => {
+              if (results?.multiFaceLandmarks?.length) resolve(results.multiFaceLandmarks[0]);
               else resolve(null);
-            });
-            faceMesh.send({ image: img }).catch(() => resolve(null));
+            };
+            faceMesh.onResults(listener);
+            // attempt to send the image; if it fails, resolve null after timeout
+            faceMesh
+              .send({ image: img })
+              .catch(() => {
+                // ignore
+                setTimeout(() => resolve(null), 250);
+              });
+            // safety timeout
+            setTimeout(() => resolve(null), 800);
           });
 
-          if (landmarks) {
+          if (landmarks && landmarks[234] && landmarks[454]) {
             const leftCheek = landmarks[234];
             const rightCheek = landmarks[454];
-            if (leftCheek && rightCheek) {
-              const lx = leftCheek.x * W;
-              const ly = leftCheek.y * H;
-              const rx = rightCheek.x * W;
-              const ry = rightCheek.y * H;
-              const cx = Math.round((lx + rx) / 2);
-              const cy = Math.round((ly + ry) / 2);
-              const boxW = Math.round(W * 0.18);
-              const boxH = Math.round(H * 0.12);
-              sampleBox = { x: cx - boxW / 2, y: cy - boxH / 2, w: boxW, h: boxH };
-            }
+            const lx = leftCheek.x * W;
+            const ly = leftCheek.y * H;
+            const rx = rightCheek.x * W;
+            const ry = rightCheek.y * H;
+            const cx = Math.round((lx + rx) / 2);
+            const cy = Math.round((ly + ry) / 2);
+            const boxW = Math.round(W * 0.18);
+            const boxH = Math.round(H * 0.12);
+            sampleBox = { x: cx - boxW / 2, y: cy - boxH / 2, w: boxW, h: boxH };
           }
         }
       } catch (err) {
-        // fallback silently
+        // best-effort: ignore and fallback
       }
 
-      if (window.FaceDetector) {
-        try {
-          const fd = new window.FaceDetector();
-          const faces = await fd.detect(canvas);
+      // Fallback: FaceDetector API
+      try {
+        const FDClass = (window as any).FaceDetector ?? (window as any).FaceDetector;
+        if (FDClass) {
+          const fd = new FDClass();
+          const faces = await fd.detect(canvas as HTMLCanvasElement);
           if (faces?.length) {
             const f = faces[0].boundingBox;
             sampleBox = { x: f.x + f.width * 0.15, y: f.y + f.height * 0.5, w: f.width * 0.7, h: f.height * 0.3 };
           }
-        } catch (err) {}
+        }
+      } catch (err) {
+        // ignore
       }
 
-      const sx = Math.max(0, Math.floor(sampleBox.x));
-      const sy = Math.max(0, Math.floor(sampleBox.y));
-      const sw = Math.max(1, Math.floor(sampleBox.w));
-      const sh = Math.max(1, Math.floor(sampleBox.h));
+      // clamp and integerize
+      const sx = Math.max(0, Math.min(canvas.width - 1, Math.floor(sampleBox.x)));
+      const sy = Math.max(0, Math.min(canvas.height - 1, Math.floor(sampleBox.y)));
+      const sw = Math.max(1, Math.min(canvas.width - sx, Math.floor(sampleBox.w)));
+      const sh = Math.max(1, Math.min(canvas.height - sy, Math.floor(sampleBox.h)));
 
       const pixels = ctx.getImageData(sx, sy, sw, sh).data;
 
@@ -185,7 +227,7 @@ export default function FoundationShadeMatch() {
       }
 
       if (count === 0) {
-        setResult({ error: "Could not sample skin tones. Try a different photo." });
+        setResult({ sampledRgb: { r: 0, g: 0, b: 0 }, match: { brand: "", shade: "", hex: "#000000", d: Infinity } });
         setLoading(false);
         return;
       }
@@ -193,16 +235,23 @@ export default function FoundationShadeMatch() {
       const avg = { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
       const lab = rgbToLab(avg);
 
-      let best = null;
+      let best: (Foundation & { d: number }) | null = null;
       FOUNDATIONS.forEach((f) => {
-        const d = deltaE(lab, f.lab);
-        if (!best || d < best.d) best = { ...f, d };
+        if (!f.lab) f.lab = rgbToLab(hexToRgb(f.hex));
+        const d = deltaE(lab, f.lab as Lab);
+        if (!best || d < best.d) best = { ...(f as Foundation), d } as Foundation & { d: number };
       });
+
+      if (!best) {
+        setResult({ sampledRgb: avg, match: { brand: "", shade: "", hex: "#000000", d: Infinity } });
+        setLoading(false);
+        return;
+      }
 
       setResult({ sampledRgb: avg, match: best });
     } catch (err) {
       console.error(err);
-      setResult({ error: "Analysis failed." });
+      setResult({ sampledRgb: { r: 0, g: 0, b: 0 }, match: { brand: "", shade: "", hex: "#000000", d: Infinity } });
     } finally {
       setLoading(false);
     }
@@ -211,37 +260,50 @@ export default function FoundationShadeMatch() {
   return (
     <div className="min-h-screen bg-gradient-to-b from-white to-rose-50 p-6 flex items-center justify-center">
       <div className="max-w-xl w-full bg-white/80 backdrop-blur-md rounded-2xl shadow-2xl p-6">
-      <h1 className="text-2xl font-extrabold mb-2 text-[#000066]"> Foundation Shade Match </h1>
+        <h1 className="text-2xl font-extrabold mb-2 text-[#000066]">Foundation Shade Match</h1>
         <p className="text-sm text-gray-600 mb-4">Upload a selfie or photo. We'll analyze and suggest the closest foundation shade.</p>
 
-        <label className="block mb-4">
-          <input type="file" accept="image/*" capture="user" onChange={handleFile} className="hidden" id="imgUpload" />
-          <div onClick={() => document.getElementById("imgUpload").click()} className="cursor-pointer rounded-lg border-dashed border-2 border-rose-200 p-6 text-center">
-            {imageSrc ? (
-              <img src={imageSrc} alt="uploaded" className="mx-auto max-h-60 rounded-md" />
-            ) : (
-              <div>
-                <div className="text-sm text-gray-500">Tap to upload </div>
-                <div className="mt-2 text-xs text-gray-400">(front-facing image works best)</div>
-              </div>
-            )}
-          </div>
-        </label>
+        <label className="block mb-4 cursor-pointer">
+  <input
+    ref={fileInputRef}
+    type="file"
+    accept="image/*"
+    capture="user"
+    onChange={handleFile}
+    className="hidden"
+    id="imgUpload"
+  />
+  {imageSrc ? (
+    <img
+      src={imageSrc}
+      alt="uploaded"
+      className="mx-auto max-h-60 rounded-md"
+    />
+  ) : (
+    <div className="rounded-lg border-dashed border-2 border-rose-200 p-6 text-center">
+      <div className="text-sm text-gray-500">Tap to upload</div>
+      <div className="mt-2 text-xs text-gray-400">
+        (front-facing image works best)
+      </div>
+    </div>
+  )}
+</label>
+
 
         <div className="h-20 flex items-center">{loading ? <AnimatedLoader /> : <div className="h-4 w-full" />}</div>
 
         <div className="mt-4">
-          {result?.error && <div className="text-red-500">{result.error}</div>}
-
-          {result?.match && (
+          {result?.match && result.match.d === Infinity && <div className="text-red-500">Could not analyze image.</div>}
+          {result?.match && result.match.d !== Infinity && (
             <div className="space-y-3">
               <div className="flex items-center gap-4">
                 <div className="w-16 h-16 rounded-lg shadow-inner" style={{ background: result.match.hex }} />
                 <div>
-                  <div className="text-sm text-gray-500">Best match</div>
-                  <div className="font-semibold">{result.match.brand} — {result.match.shade}</div>
-                  <div className="text-xs text-gray-400">ΔE (CIEDE2000): {result.match.d.toFixed(2)}</div>
-                </div>
+            <div className="text-base font-semibold text-gray-900">Best match</div>
+            <div className="text-base font-bold text-gray-900">
+                     {result.match.brand} — {result.match.shade}
+             </div>
+            </div>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
@@ -267,18 +329,18 @@ export default function FoundationShadeMatch() {
   );
 }
 
-function Swatch({ label, rgb }) {
+function Swatch({ label, rgb }: { label: string; rgb: { r: number; g: number; b: number } }) {
   const hex = rgbToHex(rgb);
   return (
     <div className="text-center text-xs">
       <div className="w-full h-12 rounded-md mb-1" style={{ background: hex }} />
       <div>{label}</div>
-      <div className="text-gray-400 text-[10px]">{hex}</div>
+      <div className="text-black-400 text-[10px]">{hex}</div>
     </div>
   );
 }
 
-function AnimatedLoader() {
+function AnimatedLoader(): JSX.Element {
   return (
     <div className="w-full flex items-center justify-center">
       <motion.div initial={{ scale: 0.9, opacity: 0.6 }} animate={{ scale: [0.95, 1.05, 0.95], rotate: [0, 8, 0] }} transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }} className="w-14 h-14 rounded-2xl bg-gradient-to-br from-rose-300 to-amber-300 shadow-xl flex items-center justify-center">
@@ -288,7 +350,7 @@ function AnimatedLoader() {
   );
 }
 
-function DeltaELegend({ value }) {
+function DeltaELegend({ value }: { value: number }) {
   const buckets = [
     { label: "Excellent", max: 1.0, color: "bg-green-400" },
     { label: "Very Good", max: 2.0, color: "bg-lime-400" },
@@ -296,14 +358,14 @@ function DeltaELegend({ value }) {
     { label: "Close", max: 10.0, color: "bg-orange-300" },
     { label: "Poor", max: Infinity, color: "bg-red-300" },
   ];
-  const current = buckets.find((b) => value <= b.max);
+  const current = buckets.find((b) => value <= b.max) || buckets[buckets.length - 1];
   return (
     <div className="mt-3">
       <div className="text-xs text-gray-500 mb-2">Match quality</div>
       <div className="flex items-center gap-3">
         <div className={`rounded-full w-3 h-3 ${current.color}`} />
         <div className="text-sm font-medium">{current.label}</div>
-        <div className="text-xs text-gray-400 ml-2">ΔE: {value.toFixed(2)}</div>
+        <div className="text-xs text-gray-400 ml-2"> {value.toFixed(2)}</div>
       </div>
 
       <div className="mt-2 grid grid-cols-5 gap-2 text-[10px] text-center">
@@ -319,17 +381,17 @@ function DeltaELegend({ value }) {
 }
 
 // ---------- Color utility helpers (RGB <-> LAB & Delta E CIE2000) ----------
-function hexToRgb(hex) {
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const h = hex.replace("#", "");
   const bigint = parseInt(h, 16);
   return { r: (bigint >> 16) & 255, g: (bigint >> 8) & 255, b: bigint & 255 };
 }
 
-function rgbToHex({ r, g, b }) {
-  return ("#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase());
+function rgbToHex({ r, g, b }: { r: number; g: number; b: number }): string {
+  return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("").toUpperCase();
 }
 
-function loadImage(src) {
+function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -339,7 +401,7 @@ function loadImage(src) {
   });
 }
 
-function rgbToXyz({ r, g, b }) {
+function rgbToXyz({ r, g, b }: { r: number; g: number; b: number }) {
   let R = r / 255;
   let G = g / 255;
   let B = b / 255;
@@ -352,7 +414,7 @@ function rgbToXyz({ r, g, b }) {
   return { X: X * 100, Y: Y * 100, Z: Z * 100 };
 }
 
-function xyzToLab({ X, Y, Z }) {
+function xyzToLab({ X, Y, Z }: { X: number; Y: number; Z: number }): Lab {
   const refX = 95.047;
   const refY = 100.0;
   const refZ = 108.883;
@@ -368,13 +430,13 @@ function xyzToLab({ X, Y, Z }) {
   return { L, a, b };
 }
 
-function rgbToLab(rgb) {
+function rgbToLab(rgb: { r: number; g: number; b: number }): Lab {
   return xyzToLab(rgbToXyz(rgb));
 }
 
-function deltaE00(lab1, lab2) {
-  const deg2rad = (deg) => (deg * Math.PI) / 180;
-  const rad2deg = (rad) => (rad * 180) / Math.PI;
+function deltaE00(lab1: Lab, lab2: Lab) {
+  const deg2rad = (deg: number) => (deg * Math.PI) / 180;
+  const rad2deg = (rad: number) => (rad * 180) / Math.PI;
   const L1 = lab1.L;
   const a1 = lab1.a;
   const b1 = lab1.b;
@@ -431,6 +493,6 @@ function deltaE00(lab1, lab2) {
   return dE;
 }
 
-function deltaE(labA, labB) {
+function deltaE(labA: Lab, labB: Lab) {
   return deltaE00(labA, labB);
 }
