@@ -1,78 +1,37 @@
-# Foundation Shade Match
+This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
-Foundation Shade Match is a React-based web application designed to help users find the perfect foundation shade for their skin tone.
+## Getting Started
 
-## 🚀 Getting Started
+First, run the development server:
 
-### Prerequisites
-Ensure you have the following installed:
-- [Node.js](https://nodejs.org/) (LTS recommended)
-- [npm](https://www.npmjs.com/) (comes with Node.js)
-
-### Installation
-
-1. Clone the repository:
-   ```sh
-   git clone https://github.com/yourusername/foundation-shade-match.git
-   ```
-
-2. Navigate into the project folder:
-   ```sh
-   cd foundation-shade-match
-   ```
-
-3. Install dependencies:
-   ```sh
-   npm install
-   ```
-
-4. Start the development server:
-   ```sh
-   npm run dev
-   ```
-   The app will be available at [http://localhost:5173](http://localhost:5173).
-
-## 📂 Project Structure
-```
-foundation-shade-match/
-│-- src/
-│   ├── components/    # Reusable UI components
-│   ├── pages/         # Main application pages
-│   ├── assets/        # Images and static assets
-│   ├── App.jsx        # Main application component
-│   ├── main.jsx       # Application entry point
-│   ├── index.css      # Global styles
-│-- public/            # Static files
-│-- package.json       # Project dependencies and scripts
-│-- vite.config.js     # Vite configuration
-│-- README.md          # Project documentation
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
 ```
 
-## 🔧 Features
-- Find the perfect foundation shade based on skin tone
-- Clean and user-friendly interface
-- Fast performance with Vite and React
-- Mobile responsive design
+Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-## 🛠️ Technologies Used
-- React.js (Vite)
-- CSS
-- JavaScript (ES6+)
-- Node.js & npm
+You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
-## 📌 Roadmap
-- [ ] Implement shade-matching algorithm
-- [ ] Integrate free foundation shade APIs
-- [ ] Add user authentication
-- [ ] Deploy to production
+This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
-## 📝 License
-This project is licensed under the MIT License.
+## Foundation Shade Match
+This application aims to solve the issue of using the wrong foundation color,
+most women find it hard to get their right foundation shade color. With foundation
+shade match you no longer have to go to stores to get the makeuo done to know you just
+need a picture of yourslef.
 
-## 👩‍💻 Contributing
-Contributions are welcome! Fork the repository, make changes, and submit a pull request.
 
-## 📞 Contact
-For any questions or collaborations, feel free to reach out:
-- Email: jeanstaicy21@gmail.com
-- GitHub: [Staicy254](https://github.com/Staicy254)
+## Advancements to be done
+
+Some of the advancements that we want to do, include adding a range of perfect concelear range to use,
+a larger database which will be used using supabase. And AI integration.
+
+## Live Project
+
+Link: 
